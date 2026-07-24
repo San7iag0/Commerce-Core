@@ -9,3 +9,8 @@ coverage/
 .vite/
 
 *.tsbuildinfo
+
+#ai
+.agents/
+.claude/
+.windsurf
