@@ -235,7 +235,7 @@ model ProductTax {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   tax       Tax     @relation(fields: [taxId], references: [id])
 
-  @@id([productId, taxId])
+  @@id(name: "pk_product_tax", [productId, taxId])
   @@index([taxId])
 }
 
