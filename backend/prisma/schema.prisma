@@ -1,3 +1,4 @@
+// ─────────────── Enums ───────────────
 enum TaxType {
   PERCENTAGE
   FIXED
@@ -9,6 +10,14 @@ enum InventoryMovementType {
   RETURN
   ADJUSTMENT
   LOSS
+}
+
+enum InventoryReferenceType {
+  SALE
+  PURCHASE
+  ADJUSTMENT
+  RETURN
+  TRANSFER
 }
 
 enum PaymentMethod {
@@ -32,20 +41,6 @@ enum SaleStatus {
   REFUNDED
 }
 
-enum InventoryReferenceType {
-
-  SALE
-
-  PURCHASE
-
-  ADJUSTMENT
-
-  RETURN
-
-  TRANSFER
-
-}
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -53,390 +48,336 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // Prisma <=6: url = env("DATABASE_URL")   <-- REQUIRED
+  // Prisma 7:  move it to prisma.config.ts  <-- NOT allowed here
 }
 
+// ─────────────── Auth ───────────────
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String    @id @default(uuid())
+  name        String    @unique
   description String?
-
-  isSystem    Boolean  @default(false)
-
+  isSystem    Boolean   @default(false)
   users       User[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
   @@index([name])
 }
 
 model User {
-  id            String   @id @default(uuid())
+  id           String    @id @default(uuid())
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  firstName    String
+  lastName     String
+  email        String    @unique
+  passwordHash String
+  phone        String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
 
-  roleId        String
-  role          Role @relation(fields: [roleId], references: [id])
+  sales              Sale[]
+  inventoryMovements InventoryMovement[] // ADDED: was missing (back-relation)
 
-  firstName     String
-  lastName      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  email         String   @unique
-  passwordHash  String
-
-  phone         String?
-
-  isActive      Boolean @default(true)
-
-  lastLoginAt   DateTime?
-
-  sales         Sale[]
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
-
+  @@index([roleId])
   @@index([email])
 }
 
-model Category {
-
-  id            String @id @default(uuid())
-
-  name          String @unique
-
-  description   String?
-
-  displayOrder  Int @default(0)
-
-  isActive      Boolean @default(true)
-
-  products      Product[]
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
+// ─────────────── Org ───────────────
+model Business {
+  id        String    @id @default(uuid())
+  name      String
+  legalName String?
+  taxId     String    @unique
+  email     String?
+  phone     String?
+  address   String?
+  currency  String    @default("USD")
+  timezone  String    @default("UTC")
+  isActive  Boolean   @default(true)
+  branches  Branch[]  // ADDED: was missing (back-relation)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
-model Tax {
+model Branch {
+  id         String   @id @default(uuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  code       String
+  name       String
+  address    String?
+  phone      String?
+  isActive   Boolean  @default(true)
 
-  id                String @id @default(uuid())
-
-  code              String @unique
-
-  name              String
-
-  rate              Decimal @db.Decimal(14,4)
-
-  type              TaxType
-
-  includedInPrice   Boolean @default(false)
-
-  isActive          Boolean @default(true)
-
-  productTaxes      ProductTax[]
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
-model Product {
-
-  id String @id @default(uuid())
-
-  categoryId String
-  category Category @relation(fields: [categoryId], references: [id])
-
-  name String
-  description String?
-
-  trackInventory Boolean @default(true)
-  allowNegativeStock Boolean @default(false)
-
-  unitOfMeasureId String
-  unitOfMeasure UnitOfMeasure @relation(fields: [unitOfMeasureId], references: [id])
-
-  variants ProductVariant[]
-
-  taxes ProductTax[]
-
-  isActive Boolean @default(true)
+  cashRegisters CashRegister[]
+  warehouses    Warehouse[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([businessId, code]) // ADDED: code was globally non-unique
+  @@index([businessId])
+}
+
+model Warehouse {
+  id       String  @id @default(uuid())
+  branchId String
+  branch   Branch  @relation(fields: [branchId], references: [id])
+  code     String
+  name     String
+  isActive Boolean @default(true)
+
+  inventories Inventory[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+  @@unique([branchId, code])
+  @@index([branchId])
 }
 
-model ProductVariant {
-
-  id String @id @default(uuid())
-
-  productId String
-  product Product @relation(fields: [productId], references: [id])
-
-  sku String @unique
-  barcode String? @unique
-
-  name String
-
-  baseCost Decimal @db.Decimal(14,4)
-
-  basePrice Decimal @db.Decimal(14,4)
-
-  minimumStock Decimal @db.Decimal(14,4)
-
-  currentStock Decimal @db.Decimal(14,4)
-
-  inventoryMovements InventoryMovement[]
-
-  saleItems SaleItem[]
-}
-
-model ProductTax {
-
-  productId String
-
-  taxId String
-
-  priority Int @default(1)
-
-  product Product @relation(fields:[productId], references:[id])
-
-  tax Tax @relation(fields:[taxId], references:[id])
-
-  @@id([productId,taxId])
-
+// ─────────────── Catalog ───────────────
+model Category {
+  id           String    @id @default(uuid())
+  name         String    @unique
+  description  String?
+  displayOrder Int       @default(0)
+  isActive     Boolean   @default(true)
+  products     Product[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 }
 
 model UnitOfMeasure {
-
-  id          String @id @default(uuid())
-
-  code        String @unique
-
-  name        String
-
-  symbol      String
-
-  isActive    Boolean @default(true)
-
-  products    Product[]
-
-  createdAt   DateTime @default(now())
-
-  updatedAt   DateTime @updatedAt
-
+  id        String    @id @default(uuid())
+  code      String    @unique
+  name      String
+  symbol    String
+  isActive  Boolean   @default(true)
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
-model CashRegister {
-
-  id          String   @id @default(uuid())
-
-  code        String   @unique
-
-  name        String
-
-  status      CashRegisterStatus @default(CLOSED)
-
-  isActive    Boolean @default(true)
-
-  sales       Sale[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
-
+model Tax {
+  id              String       @id @default(uuid())
+  code            String       @unique
+  name            String
+  rate            Decimal      @db.Decimal(14, 4)
+  type            TaxType
+  includedInPrice Boolean      @default(false)
+  isActive        Boolean      @default(true)
+  productTaxes    ProductTax[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 }
 
-// sale photo
-model Sale {
+model Product {
+  id                 String        @id @default(uuid())
+  categoryId         String
+  category           Category      @relation(fields: [categoryId], references: [id])
+  name               String
+  description        String?
+  trackInventory     Boolean       @default(true)
+  allowNegativeStock Boolean       @default(false)
+  unitOfMeasureId    String
+  unitOfMeasure      UnitOfMeasure @relation(fields: [unitOfMeasureId], references: [id])
 
-  id              String @id @default(uuid())
+  variants ProductVariant[]
+  taxes    ProductTax[]
 
-  number          String @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  cashierId       String
-
-  cashier         User @relation(fields:[cashierId], references:[id])
-
-  cashRegisterId  String
-
-  cashRegister    CashRegister @relation(fields:[cashRegisterId], references:[id])
-
-  status          SaleStatus @default(DRAFT)
-
-  subtotal        Decimal @db.Decimal(14,4)
-
-  discountAmount  Decimal @default(0) @db.Decimal(14,4)
-
-  taxAmount       Decimal @default(0) @db.Decimal(14,4)
-
-  total           Decimal @db.Decimal(14,4)
-
-  notes           String?
-
-  items           SaleItem[]
-
-  payments        Payment[]
-
-  createdAt       DateTime @default(now())
-
-  updatedAt       DateTime @updatedAt
-
-  deletedAt       DateTime?
-
-  completedAt DateTime?
-
-  @@index([number])
-
-  @@index([createdAt])
-
+  @@index([categoryId])
+  @@index([unitOfMeasureId])
 }
-// product photo, check ProductVariant as change for product
-model SaleItem {
 
-  id String @id @default(uuid())
-
-  saleId String
-
-  sale Sale @relation(fields:[saleId], references:[id])
-
+model ProductVariant {
+  id        String  @id @default(uuid())
   productId String
+  product   Product @relation(fields: [productId], references: [id])
+  sku       String  @unique
+  barcode   String? @unique
+  name      String
+  baseCost  Decimal @db.Decimal(14, 4)
+  basePrice Decimal @db.Decimal(14, 4)
 
-  product ProductVariant @relation(fields:[productId], references:[id])
+  // REMOVED currentStock / minimumStock -> now live on Inventory (per warehouse)
 
-  sku String
+  inventories        Inventory[]         // ADDED: was missing (back-relation)
+  inventoryMovements InventoryMovement[] // now actually points at ProductVariant
+  saleItems          SaleItem[]
 
-  productName String
-
-  quantity Decimal @db.Decimal(14,4)
-
-  unitCost Decimal @db.Decimal(14,4)
-
-  unitPrice Decimal @db.Decimal(14,4)
-
-  discountAmount Decimal @default(0) @db.Decimal(14,4)
-
-  taxAmount Decimal @default(0) @db.Decimal(14,4)
-
-  subtotal Decimal @db.Decimal(14,4)
-
-  total Decimal @db.Decimal(14,4)
-
-  createdAt DateTime @default(now())
-
-  @@index([saleId])
+  isActive  Boolean   @default(true) // ADDED
+  createdAt DateTime  @default(now()) // ADDED
+  updatedAt DateTime  @updatedAt // ADDED
+  deletedAt DateTime? // ADDED
 
   @@index([productId])
-
 }
 
-model Payment {
+model ProductTax {
+  productId String
+  taxId     String
+  priority  Int     @default(1)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tax       Tax     @relation(fields: [taxId], references: [id])
 
-  id String @id @default(uuid())
+  @@id([productId, taxId])
+  @@index([taxId])
+}
 
-  saleId String
+// ─────────────── Inventory ───────────────
+model Inventory {
+  id               String         @id @default(uuid())
+  warehouseId      String
+  warehouse        Warehouse      @relation(fields: [warehouseId], references: [id])
+  productVariantId String
+  productVariant   ProductVariant @relation(fields: [productVariantId], references: [id])
 
-  sale Sale @relation(fields:[saleId], references:[id])
+  currentStock Decimal @db.Decimal(14, 4)
+  minimumStock Decimal @default(0) @db.Decimal(14, 4)
 
-  method PaymentMethod
-
-  amount Decimal @db.Decimal(14,4)
-
-  currency String @default("USD")
-
-  exchangeRate Decimal? @db.Decimal(14,6)
-
-  reference String?
-
-  notes String?
+  movements InventoryMovement[]
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@unique([warehouseId, productVariantId])
+  @@index([productVariantId])
 }
 
-// keep record for whom, date, stock
 model InventoryMovement {
-
   id String @id @default(uuid())
 
-  productId String
+  inventoryId String    // ADDED: Inventory.movements had no counterpart
+  inventory   Inventory @relation(fields: [inventoryId], references: [id])
 
-  product Product @relation(fields:[productId], references:[id])
+  productVariantId String         // CHANGED: was `productId -> Product`
+  productVariant   ProductVariant @relation(fields: [productVariantId], references: [id])
 
-  type InventoryMovementType
+  type          InventoryMovementType
+  quantity      Decimal               @db.Decimal(14, 4)
+  previousStock Decimal               @db.Decimal(14, 4)
+  newStock      Decimal               @db.Decimal(14, 4)
 
-  quantity Decimal @db.Decimal(14,4)
-
-  previousStock Decimal @db.Decimal(14,4)
-
-  newStock Decimal @db.Decimal(14,4)
-
-  referenceId String
+  referenceType InventoryReferenceType // ADDED: enum was declared but unused
+  referenceId   String?                // now nullable (ADJUSTMENT has no doc)
 
   notes String?
 
   createdById String
-
-  createdBy User @relation(fields:[createdById], references:[id])
-
-  createdAt DateTime @default(now())
-
-  @@index([productId])
-
-  @@index([referenceId])
-
-}
-
-// handle different business
-model Business {
-
-  id          String @id @default(uuid())
-
-  name        String
-
-  legalName   String?
-
-  taxId       String @unique
-
-  email       String?
-
-  phone       String?
-
-  address     String?
-
-  currency    String @default("USD")
-
-  timezone    String @default("UTC")
-
-  isActive    Boolean @default(true)
-
-  createdAt   DateTime @default(now())
-
-  updatedAt   DateTime @updatedAt
-}
-
-model Branch {
-
-  id String @id @default(uuid())
-
-  businessId String
-
-  business Business
-      @relation(fields:[businessId], references:[id])
-
-  code String
-
-  name String
-
-  address String?
-
-  phone String?
-
-  isActive Boolean @default(true)
-
-  cashRegisters CashRegister[]
+  createdBy   User   @relation(fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
 
-  updatedAt DateTime @updatedAt
+  @@index([inventoryId])
+  @@index([productVariantId])
+  @@index([createdById])
+  @@index([referenceType, referenceId])
+  @@index([createdAt])
+}
 
+// ─────────────── Sales ───────────────
+model CashRegister {
+  id       String             @id @default(uuid())
+  branchId String             // ADDED: Branch.cashRegisters had no counterpart
+  branch   Branch             @relation(fields: [branchId], references: [id])
+  code     String
+  name     String
+  status   CashRegisterStatus @default(CLOSED)
+  isActive Boolean            @default(true)
+
+  sales Sale[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([branchId, code])
+  @@index([branchId])
+}
+
+model Sale {
+  id             String       @id @default(uuid())
+  number         String       @unique
+  cashierId      String
+  cashier        User         @relation(fields: [cashierId], references: [id])
+  cashRegisterId String
+  cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id])
+
+  status         SaleStatus @default(DRAFT)
+  subtotal       Decimal    @db.Decimal(14, 4)
+  discountAmount Decimal    @default(0) @db.Decimal(14, 4)
+  taxAmount      Decimal    @default(0) @db.Decimal(14, 4)
+  total          Decimal    @db.Decimal(14, 4)
+  notes          String?
+
+  items    SaleItem[]
+  payments Payment[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([cashierId])
+  @@index([cashRegisterId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SaleItem {
+  id     String @id @default(uuid())
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  productVariantId String         // RENAMED from productId (it points at a variant)
+  productVariant   ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  sku            String
+  productName    String
+  quantity       Decimal @db.Decimal(14, 4)
+  unitCost       Decimal @db.Decimal(14, 4)
+  unitPrice      Decimal @db.Decimal(14, 4)
+  discountAmount Decimal @default(0) @db.Decimal(14, 4)
+  taxAmount      Decimal @default(0) @db.Decimal(14, 4)
+  subtotal       Decimal @db.Decimal(14, 4)
+  total          Decimal @db.Decimal(14, 4)
+
+  createdAt DateTime @default(now())
+
+  @@index([saleId])
+  @@index([productVariantId])
+}
+
+model Payment {
+  id     String @id @default(uuid())
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  method       PaymentMethod
+  amount       Decimal       @db.Decimal(14, 4)
+  currency     String        @default("USD")
+  exchangeRate Decimal?      @db.Decimal(14, 6)
+  reference    String?
+  notes        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([method])
+  @@index([createdAt])
+  @@index([saleId])
 }
