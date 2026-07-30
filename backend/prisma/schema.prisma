@@ -1,3 +1,30 @@
+enum TaxType {
+  PERCENTAGE
+  FIXED
+}
+
+enum InventoryMovementType {
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+  LOSS
+}
+
+enum PaymentMethod {
+  CASH
+  CREDIT_CARD
+  DEBIT_CARD
+  TRANSFER
+  QR
+  OTHER
+}
+
+enum CashRegisterStatus {
+  OPEN
+  CLOSED
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,4 +32,47 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+
+  isSystem    Boolean  @default(false)
+
+  users       User[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  @@index([name])
+}
+
+model User {
+  id            String   @id @default(uuid())
+
+  roleId        String
+  role          Role @relation(fields: [roleId], references: [id])
+
+  firstName     String
+  lastName      String
+
+  email         String   @unique
+  passwordHash  String
+
+  phone         String?
+
+  isActive      Boolean @default(true)
+
+  lastLoginAt   DateTime?
+
+  sales         Sale[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  @@index([email])
 }
